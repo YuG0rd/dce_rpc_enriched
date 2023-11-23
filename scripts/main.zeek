@@ -1,4 +1,3 @@
-
 module dce_rpc_enriched;
 
 export {
@@ -10,9 +9,12 @@ export {
     type Info: record {
 		ts: time &log &optional;        
 		uid: string &log &optional;
-        id: conn_id     &log;				
+        id: conn_id     &log;
+		endpoint: string &log &optional;
+		operation: string &log &optional;				
         service_name: string &log &optional;
-		service_path: string  &log &optional;		
+		service_path: string  &log &optional;
+		rid: int &log &optional;	
     };
 }
 
@@ -25,21 +27,25 @@ event dce_rpc_request_stub (c: connection, fid: count, ctx_id: count, opnum: cou
 {
 	if (c$dce_rpc?$endpoint) 
 	{
+		local current_offset = 0;
+		local policyHandle = stub[0:20];
+		current_offset+=20;
 		switch (c$dce_rpc$endpoint)
 		{
 			case "svcctl":		
 				switch (opnum)
 				{
 					case 12:
-						local current_offset = 0;
-						local policyHandle = stub[0:20];
-						current_offset+=20;
 						local max_count2 = bytestring_to_count(stub[current_offset:current_offset+4], T);
 						current_offset+=4;
 						local offset2 = bytestring_to_count(stub[current_offset:current_offset+4], T);
 						current_offset+=4;
 						local actual_count = bytestring_to_count(stub[current_offset:current_offset+4], T);
 						current_offset+=4;
+						if (actual_count > (|stub| - current_offset))
+						{
+							break;
+						}
 						local serviceName = stub[current_offset:current_offset+(actual_count*2)];
 						current_offset+=actual_count*2 + 2;
 						local display_name_referent = bytestring_to_count(stub[current_offset:current_offset+4], T);
@@ -68,13 +74,26 @@ event dce_rpc_request_stub (c: connection, fid: count, ctx_id: count, opnum: cou
 						current_offset+=actual_count_path*2;
 
 
-						local rec: dce_rpc_enriched::Info =[$ts=network_time(),$id=c$id, $uid=c$uid, $service_path=bin_path, $service_name=serviceName];
-						#LOG::write(dce_rpc_enriched::LOG, rec);
+						local rec: dce_rpc_enriched::Info =[$ts=network_time(),$id=c$id, $uid=c$uid, $endpoint=c$dce_rpc$endpoint, $operation="CreateServiceW", $service_path=bin_path, $service_name=serviceName];						
 						Log::write(dce_rpc_enriched::LOG, rec);
 
 						break;
 					default:
 						break;				
+				}
+				break;
+			case "samr":
+				switch (opnum)
+				{
+					case 19:
+						local access_mask_group = stub[current_offset:current_offset+4];
+						current_offset += 4;
+						local rid = bytestring_to_count(stub[current_offset:current_offset+4], T);
+						local rec_open_group: dce_rpc_enriched::Info =[$ts=network_time(),$id=c$id, $uid=c$uid, $endpoint=c$dce_rpc$endpoint, $operation="OpenGroup", $rid=rid];						
+						Log::write(dce_rpc_enriched::LOG, rec_open_group);
+						break;
+					default:
+						break;
 				}
 				break;
 			default:
